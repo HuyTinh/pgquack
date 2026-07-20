@@ -299,11 +299,11 @@ fn parse_column_line(line: &str) -> Option<ColumnDef> {
         return None;
     }
 
-    let (column_name, remaining) = if line.starts_with('"') {
-        if let Some(close_idx) = line[1..].find('"') {
+    let (column_name, remaining) = if let Some(stripped) = line.strip_prefix('"') {
+        if let Some(close_idx) = stripped.find('"') {
             (
-                line[1..close_idx + 1].to_string(),
-                line[close_idx + 2..].trim(),
+                stripped[..close_idx].to_string(),
+                stripped[close_idx + 1..].trim(),
             )
         } else {
             return None;
@@ -321,10 +321,9 @@ fn parse_column_line(line: &str) -> Option<ColumnDef> {
     }
 
     let mut db_type = String::new();
-    let mut chars = remaining.chars().peekable();
     let mut paren_count = 0;
 
-    while let Some(c) = chars.next() {
+    for c in remaining.chars() {
         if c == '(' {
             paren_count += 1;
             db_type.push(c);
@@ -418,7 +417,7 @@ pub fn decode_copy_field(raw: &str) -> Result<Option<String>, String> {
                         octal_str.push(next_c);
                         for _ in 0..2 {
                             if let Some(&o) = chars.peek() {
-                                if o >= '0' && o <= '7' {
+                                if ('0'..='7').contains(&o) {
                                     octal_str.push(o);
                                     chars.next();
                                 } else {

@@ -458,5 +458,5 @@ fn test_mixed_case_types() {
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT flag FROM mixed_case").unwrap();
     let flag: bool = stmt.query_row([], |r| r.get(0)).unwrap();
-    assert_eq!(flag, true);
+    assert!(flag);
 }

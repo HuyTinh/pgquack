@@ -55,19 +55,8 @@ pub fn map_postgres_type(pg_type: &str) -> &'static str {
         "TIMESTAMP"
     } else if norm == "date" {
         "DATE"
-    // JSON / JSONB → store as VARCHAR in DuckDB (DuckDB can still parse it)
-    } else if norm == "json" || norm == "jsonb" {
-        "VARCHAR"
-    // UUID → store as VARCHAR
-    } else if norm == "uuid" {
-        "VARCHAR"
-    // Arrays (e.g. "integer[]", "text[]") → store JSON-encoded as VARCHAR
-    } else if norm.ends_with("[]") || norm.ends_with("array") {
-        "VARCHAR"
-    // Byte arrays
-    } else if norm == "bytea" {
-        "VARCHAR"
     } else {
+        // Covers json, jsonb, uuid, arrays, bytea, and all other text types
         "VARCHAR"
     }
 }
@@ -258,7 +247,7 @@ impl Engine {
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let mut row_strings = Vec::with_capacity(col_count);
-            for i in 0..col_count {
+            for (i, width) in col_widths.iter_mut().enumerate().take(col_count) {
                 let s = match row.get::<_, String>(i) {
                     Ok(val) => val,
                     Err(_) => {
@@ -285,7 +274,7 @@ impl Engine {
                         }
                     }
                 };
-                col_widths[i] = col_widths[i].max(s.len());
+                *width = (*width).max(s.len());
                 row_strings.push(s);
             }
             rows_data.push(row_strings);

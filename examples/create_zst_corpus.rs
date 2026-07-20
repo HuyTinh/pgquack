@@ -16,8 +16,8 @@ fn main() {
     ];
 
     for (src, dst) in &pairs {
-        let input = File::open(src).expect(&format!("Cannot open {}", src));
-        let output = File::create(dst).expect(&format!("Cannot create {}", dst));
+        let input = File::open(src).unwrap_or_else(|e| panic!("Cannot open {}: {}", src, e));
+        let output = File::create(dst).unwrap_or_else(|e| panic!("Cannot create {}: {}", dst, e));
         let mut encoder =
             zstd::Encoder::new(BufWriter::new(output), 3).expect("zstd encoder failed");
         std::io::copy(&mut BufReader::new(input), &mut encoder).expect("copy failed");
