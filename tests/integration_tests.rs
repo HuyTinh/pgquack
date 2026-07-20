@@ -9,36 +9,43 @@ fn load_dump_file(path: &str) -> (Engine, usize) {
     let reader = BufReader::new(file);
     let mut parser = Parser::new(reader);
     let engine = Engine::new().expect("Failed to initialize DuckDB");
-    
-    let mut table_schemas = HashMap::new();
-    let mut current_appender = None;
 
-    while let Some(event_res) = parser.next_event() {
-        let event = event_res.expect("Parser error");
-        match event {
-            ParserEvent::TableCreated(schema) => {
-                engine.create_table(&schema).expect("Failed to create table");
-                table_schemas.insert(schema.name.clone(), schema);
-            }
-            ParserEvent::CopyStart { table_name, .. } => {
-                let schema = table_schemas.get(&table_name).expect("Schema not found");
-                let appender = engine.appender(&table_name, schema.clone()).expect("Failed to start Appender");
-                current_appender = Some(appender);
-            }
-            ParserEvent::CopyRow { values, .. } => {
-                if let Some(ref mut session) = current_appender {
-                    if let Err(err) = session.append_row(&values) {
-                        eprintln!("Row append failed: {}", err);
-                        parser.skipped_lines_count += 1;
+    // Use an inner scope so that AppenderSession (which borrows engine) is
+    // fully dropped before we move `engine` in the return value.
+    {
+        let mut table_schemas = HashMap::new();
+        let mut current_appender: Option<pgquack::engine::AppenderSession<'_>> = None;
+
+        while let Some(event_res) = parser.next_event() {
+            let event = event_res.expect("Parser error");
+            match event {
+                ParserEvent::TableCreated(schema) => {
+                    engine.create_table(&schema).expect("Failed to create table");
+                    table_schemas.insert(schema.name.clone(), schema);
+                }
+                ParserEvent::CopyStart { table_name, .. } => {
+                    // Drop previous appender before creating the next one.
+                    current_appender = None;
+                    let schema = table_schemas.get(&table_name).expect("Schema not found");
+                    let appender = engine.appender(&table_name, schema.clone()).expect("Failed to start Appender");
+                    current_appender = Some(appender);
+                }
+                ParserEvent::CopyRow { values, .. } => {
+                    if let Some(ref mut session) = current_appender {
+                        if let Err(err) = session.append_row(&values) {
+                            eprintln!("Row append failed: {}", err);
+                            parser.skipped_lines_count += 1;
+                        }
                     }
                 }
-            }
-            ParserEvent::CopyEnd { .. } => {
-                current_appender = None;
+                ParserEvent::CopyEnd { .. } => {
+                    current_appender = None;
+                }
             }
         }
+        // current_appender dropped here, releasing borrow of engine
     }
-    
+
     (engine, parser.skipped_lines_count)
 }
 

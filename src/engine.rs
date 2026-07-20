@@ -13,14 +13,14 @@ pub enum MappedValue {
 }
 
 impl ToSql for MappedValue {
-    fn to_sql(&self) -> duckdb::Result<ToSqlOutput> {
+    fn to_sql(&self) -> duckdb::Result<ToSqlOutput<'_>> {
         match self {
             MappedValue::Int(v) => v.to_sql(),
             MappedValue::BigInt(v) => v.to_sql(),
             MappedValue::Bool(v) => v.to_sql(),
             MappedValue::Text(v) => v.to_sql(),
             MappedValue::Timestamp(v) => v.to_sql(),
-            MappedValue::Null => Ok(ToSqlOutput::Null),
+            MappedValue::Null => Option::<i32>::None.to_sql(),
         }
     }
 }
@@ -251,12 +251,14 @@ impl<'a> AppenderSession<'a> {
             ));
         }
 
+        let mut mapped_values: Vec<MappedValue> = Vec::with_capacity(values.len());
         for (i, val) in values.iter().enumerate() {
             let col = &self.schema.columns[i];
             let mapped = convert_value(val.as_deref(), &col.db_type)?;
-            self.appender.append(mapped).map_err(|e| e.to_string())?;
+            mapped_values.push(mapped);
         }
-        self.appender.end_row().map_err(|e| e.to_string())?;
+        let params: Vec<&dyn ToSql> = mapped_values.iter().map(|v| v as &dyn ToSql).collect();
+        self.appender.append_row(params.as_slice()).map_err(|e| e.to_string())?;
         Ok(())
     }
 }
