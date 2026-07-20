@@ -48,7 +48,11 @@ impl CacheManager {
     pub fn new<P: AsRef<Path>>(dump_path: P) -> Self {
         let dir_name = format!(
             "{}.pgquack_cache",
-            dump_path.as_ref().file_name().unwrap_or_default().to_string_lossy()
+            dump_path
+                .as_ref()
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
         );
         let cache_dir = dump_path
             .as_ref()
@@ -89,8 +93,11 @@ impl CacheManager {
             && cached.dump_mtime_secs == current.dump_mtime_secs;
         debug!(
             "Cache validity: {} (size {}/{}, mtime {}/{})",
-            valid, cached.dump_size, current.dump_size,
-            cached.dump_mtime_secs, current.dump_mtime_secs
+            valid,
+            cached.dump_size,
+            current.dump_size,
+            cached.dump_mtime_secs,
+            current.dump_mtime_secs
         );
         valid
     }
@@ -212,6 +219,9 @@ mod tests {
     #[test]
     fn cache_dir_naming() {
         let cm = CacheManager::new("/tmp/backup.sql.gz");
-        assert!(cm.cache_dir.to_string_lossy().contains("backup.sql.gz.pgquack_cache"));
+        assert!(cm
+            .cache_dir
+            .to_string_lossy()
+            .contains("backup.sql.gz.pgquack_cache"));
     }
 }

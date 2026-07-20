@@ -48,7 +48,10 @@ impl DumpReader {
     }
 
     /// Open with an explicit format (useful for testing).
-    pub fn open_with_format<P: AsRef<Path>>(path: P, format: CompressionFormat) -> io::Result<Self> {
+    pub fn open_with_format<P: AsRef<Path>>(
+        path: P,
+        format: CompressionFormat,
+    ) -> io::Result<Self> {
         let path = path.as_ref();
         match format {
             CompressionFormat::Plain => {

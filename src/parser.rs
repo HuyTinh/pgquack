@@ -1,6 +1,6 @@
+use log::warn;
 use std::collections::HashMap;
 use std::io::BufRead;
-use log::warn;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,15 +40,9 @@ pub enum ParserError {
         source: std::io::Error,
     },
     #[error("Malformed SQL at line {line}: {message}")]
-    MalformedSql {
-        line: usize,
-        message: String,
-    },
+    MalformedSql { line: usize, message: String },
     #[error("Malformed COPY data at line {line}: {message}")]
-    MalformedCopy {
-        line: usize,
-        message: String,
-    },
+    MalformedCopy { line: usize, message: String },
 }
 
 pub struct Parser<R: BufRead> {
@@ -93,13 +87,19 @@ impl<R: BufRead> Parser<R> {
                         ParserState::InCreateTable { table_name, .. } => {
                             return Some(Err(ParserError::MalformedSql {
                                 line: self.line_number,
-                                message: format!("Unexpected EOF inside CREATE TABLE for {}", table_name),
+                                message: format!(
+                                    "Unexpected EOF inside CREATE TABLE for {}",
+                                    table_name
+                                ),
                             }));
                         }
                         ParserState::InCopy { table_name, .. } => {
                             return Some(Err(ParserError::MalformedCopy {
                                 line: self.line_number,
-                                message: format!("Unexpected EOF inside COPY data for {}", table_name),
+                                message: format!(
+                                    "Unexpected EOF inside COPY data for {}",
+                                    table_name
+                                ),
                             }));
                         }
                     }
@@ -129,7 +129,10 @@ impl<R: BufRead> Parser<R> {
                                 }
                             }
                         }
-                        ParserState::InCreateTable { table_name, columns } => {
+                        ParserState::InCreateTable {
+                            table_name,
+                            columns,
+                        } => {
                             let trimmed_cols = trimmed.trim();
                             if trimmed_cols.starts_with(')') || trimmed_cols.contains(");") {
                                 // End of CREATE TABLE
@@ -146,7 +149,10 @@ impl<R: BufRead> Parser<R> {
                                 }
                             }
                         }
-                        ParserState::InCopy { table_name, columns } => {
+                        ParserState::InCopy {
+                            table_name,
+                            columns,
+                        } => {
                             if trimmed == "\\." {
                                 let t_name = table_name.clone();
                                 self.state = ParserState::Idle;
@@ -210,7 +216,7 @@ impl<R: BufRead> Parser<R> {
         let line_upper = line.to_uppercase();
         let from_idx = line_upper.find(" FROM ")?;
         let table_section = &line[5..from_idx].trim();
-        
+
         let mut table_name = String::new();
         let mut columns = Vec::new();
 
@@ -242,7 +248,10 @@ impl<R: BufRead> Parser<R> {
             } else {
                 return Some(Err(ParserError::MalformedCopy {
                     line: self.line_number,
-                    message: format!("COPY for table {} but table schema is not defined", table_name),
+                    message: format!(
+                        "COPY for table {} but table schema is not defined",
+                        table_name
+                    ),
                 }));
             }
         }
@@ -252,7 +261,10 @@ impl<R: BufRead> Parser<R> {
             columns: columns.clone(),
         };
 
-        Some(Ok(ParserEvent::CopyStart { table_name, columns }))
+        Some(Ok(ParserEvent::CopyStart {
+            table_name,
+            columns,
+        }))
     }
 }
 
@@ -289,7 +301,10 @@ fn parse_column_line(line: &str) -> Option<ColumnDef> {
 
     let (column_name, remaining) = if line.starts_with('"') {
         if let Some(close_idx) = line[1..].find('"') {
-            (line[1..close_idx + 1].to_string(), line[close_idx + 2..].trim())
+            (
+                line[1..close_idx + 1].to_string(),
+                line[close_idx + 2..].trim(),
+            )
         } else {
             return None;
         }
@@ -416,7 +431,10 @@ pub fn decode_copy_field(raw: &str) -> Result<Option<String>, String> {
                         if let Some(ch) = std::char::from_u32(val) {
                             decoded.push(ch);
                         } else {
-                            return Err(format!("Invalid Unicode codepoint from octal escape \\{}", octal_str));
+                            return Err(format!(
+                                "Invalid Unicode codepoint from octal escape \\{}",
+                                octal_str
+                            ));
                         }
                     }
                     other => {

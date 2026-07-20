@@ -1,6 +1,6 @@
 use crate::parser::TableSchema;
-use duckdb::{types::ToSqlOutput, Connection, ToSql};
 use chrono::{NaiveDate, NaiveDateTime};
+use duckdb::{types::ToSqlOutput, Connection, ToSql};
 use log::{debug, info};
 
 pub enum MappedValue {
@@ -32,7 +32,8 @@ impl ToSql for MappedValue {
 pub fn map_postgres_type(pg_type: &str) -> &'static str {
     let norm = pg_type.to_lowercase();
     // Integer types
-    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint" {
+    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint"
+    {
         "INTEGER"
     } else if norm == "bigint" || norm == "int8" {
         "BIGINT"
@@ -40,9 +41,13 @@ pub fn map_postgres_type(pg_type: &str) -> &'static str {
     } else if norm == "boolean" || norm == "bool" {
         "BOOLEAN"
     // Floating point
-    } else if norm == "real" || norm == "float4" || norm == "float8"
-        || norm == "double precision" || norm == "float"
-        || norm.starts_with("numeric") || norm.starts_with("decimal")
+    } else if norm == "real"
+        || norm == "float4"
+        || norm == "float8"
+        || norm == "double precision"
+        || norm == "float"
+        || norm.starts_with("numeric")
+        || norm.starts_with("decimal")
     {
         "DOUBLE"
     // Temporal
@@ -79,7 +84,7 @@ fn parse_timestamp(s: &str) -> Result<NaiveDateTime, String> {
             return Ok(dt);
         }
     }
-    
+
     // Handle timezone suffix like +00, +07:00, etc.
     if let Some(plus_idx) = s.find('+') {
         let base = &s[..plus_idx];
@@ -89,7 +94,7 @@ fn parse_timestamp(s: &str) -> Result<NaiveDateTime, String> {
             }
         }
     }
-    
+
     if let Some(minus_idx) = s.rfind('-') {
         // Only if it's after the date portion (e.g. YYYY-MM-DD)
         if minus_idx > 10 {
@@ -114,12 +119,15 @@ pub fn convert_value(val: Option<&str>, db_type: &str) -> Result<MappedValue, St
     let norm = db_type.to_lowercase();
 
     // Integer types
-    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint" {
-        let parsed = val.parse::<i32>()
+    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint"
+    {
+        let parsed = val
+            .parse::<i32>()
             .map_err(|e| format!("Failed to parse integer '{}': {}", val, e))?;
         Ok(MappedValue::Int(parsed))
     } else if norm == "bigint" || norm == "int8" {
-        let parsed = val.parse::<i64>()
+        let parsed = val
+            .parse::<i64>()
             .map_err(|e| format!("Failed to parse bigint '{}': {}", val, e))?;
         Ok(MappedValue::BigInt(parsed))
     // Boolean
@@ -131,11 +139,16 @@ pub fn convert_value(val: Option<&str>, db_type: &str) -> Result<MappedValue, St
         };
         Ok(MappedValue::Bool(parsed))
     // Floating point & numeric/decimal
-    } else if norm == "real" || norm == "float4" || norm == "float8"
-        || norm == "double precision" || norm == "float"
-        || norm.starts_with("numeric") || norm.starts_with("decimal")
+    } else if norm == "real"
+        || norm == "float4"
+        || norm == "float8"
+        || norm == "double precision"
+        || norm == "float"
+        || norm.starts_with("numeric")
+        || norm.starts_with("decimal")
     {
-        let parsed = val.parse::<f64>()
+        let parsed = val
+            .parse::<f64>()
             .map_err(|e| format!("Failed to parse float '{}': {}", val, e))?;
         Ok(MappedValue::Float(parsed))
     // Temporal
@@ -262,8 +275,12 @@ impl Engine {
                             duckdb::types::ValueRef::Float(v) => v.to_string(),
                             duckdb::types::ValueRef::Double(v) => v.to_string(),
                             duckdb::types::ValueRef::Decimal(v) => v.to_string(),
-                            duckdb::types::ValueRef::Text(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-                            duckdb::types::ValueRef::Blob(bytes) => format!("BLOB ({} bytes)", bytes.len()),
+                            duckdb::types::ValueRef::Text(bytes) => {
+                                String::from_utf8_lossy(bytes).into_owned()
+                            }
+                            duckdb::types::ValueRef::Blob(bytes) => {
+                                format!("BLOB ({} bytes)", bytes.len())
+                            }
                             _ => format!("{:?}", val),
                         }
                     }
@@ -342,7 +359,9 @@ impl<'a> AppenderSession<'a> {
             mapped_values.push(mapped);
         }
         let params: Vec<&dyn ToSql> = mapped_values.iter().map(|v| v as &dyn ToSql).collect();
-        self.appender.append_row(params.as_slice()).map_err(|e| e.to_string())?;
+        self.appender
+            .append_row(params.as_slice())
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

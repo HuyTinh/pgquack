@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::path::Path;
 use clap::Parser as ClapParser;
 use log::{error, info, warn};
+use std::collections::HashMap;
+use std::path::Path;
 
-use pgquack::parser::{Parser, ParserEvent};
-use pgquack::engine::Engine;
-use pgquack::reader::DumpReader;
 use pgquack::cache::CacheManager;
+use pgquack::engine::Engine;
+use pgquack::parser::{Parser, ParserEvent};
+use pgquack::reader::DumpReader;
 
 #[derive(ClapParser, Debug)]
 #[command(
@@ -72,7 +72,10 @@ fn main() {
 
     // ── 5. Exit code ───────────────────────────────────────────────────────
     if skipped_lines > 0 {
-        warn!("Exiting with code 2 — {} row(s) were skipped.", skipped_lines);
+        warn!(
+            "Exiting with code 2 — {} row(s) were skipped.",
+            skipped_lines
+        );
         std::process::exit(2);
     } else {
         std::process::exit(0);
@@ -119,10 +122,7 @@ fn do_parse(dump_file: &str, engine: &Engine, cache: &CacheManager, no_cache: bo
                 ParserEvent::TableCreated(schema) => {
                     info!("Creating table: {}", schema.name);
                     if let Err(err) = engine.create_table(&schema) {
-                        log::error!(
-                            "Failed to create table {} in DuckDB: {}",
-                            schema.name, err
-                        );
+                        log::error!("Failed to create table {} in DuckDB: {}", schema.name, err);
                         std::process::exit(1);
                     }
                     table_schemas.insert(schema.name.clone(), schema);
@@ -136,26 +136,21 @@ fn do_parse(dump_file: &str, engine: &Engine, cache: &CacheManager, no_cache: bo
                             Err(err) => {
                                 log::error!(
                                     "Failed to start appender for table {}: {}",
-                                    table_name, err
+                                    table_name,
+                                    err
                                 );
                                 std::process::exit(1);
                             }
                         }
                     } else {
-                        log::error!(
-                            "Table schema not found for COPY target: {}",
-                            table_name
-                        );
+                        log::error!("Table schema not found for COPY target: {}", table_name);
                         std::process::exit(1);
                     }
                 }
                 ParserEvent::CopyRow { values, .. } => {
                     if let Some(ref mut session) = current_appender {
                         if let Err(err) = session.append_row(&values) {
-                            warn!(
-                                "Skipped row at line {}: {}",
-                                parser.line_number, err
-                            );
+                            warn!("Skipped row at line {}: {}", parser.line_number, err);
                             parser.skipped_lines_count += 1;
                         }
                     }

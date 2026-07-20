@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use pgquack::parser::{Parser, ParserEvent};
 use pgquack::engine::Engine;
+use pgquack::parser::{Parser, ParserEvent};
 use pgquack::reader::DumpReader;
+use std::collections::HashMap;
 
 fn load_dump_file(path: &str) -> (Engine, usize) {
     let reader = DumpReader::open(path)
@@ -20,14 +20,18 @@ fn load_dump_file(path: &str) -> (Engine, usize) {
             let event = event_res.expect("Parser error");
             match event {
                 ParserEvent::TableCreated(schema) => {
-                    engine.create_table(&schema).expect("Failed to create table");
+                    engine
+                        .create_table(&schema)
+                        .expect("Failed to create table");
                     table_schemas.insert(schema.name.clone(), schema);
                 }
                 ParserEvent::CopyStart { table_name, .. } => {
                     // Drop previous appender before creating the next one.
                     let _ = current_appender.take();
                     let schema = table_schemas.get(&table_name).expect("Schema not found");
-                    let appender = engine.appender(&table_name, schema.clone()).expect("Failed to start Appender");
+                    let appender = engine
+                        .appender(&table_name, schema.clone())
+                        .expect("Failed to start Appender");
                     current_appender = Some(appender);
                 }
                 ParserEvent::CopyRow { values, .. } => {
@@ -53,14 +57,20 @@ fn load_dump_file(path: &str) -> (Engine, usize) {
 fn test_simple_users() {
     let (engine, skipped) = load_dump_file("test_corpus/simple_users.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT count(*) FROM users").unwrap();
     let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
     assert_eq!(count, 3);
 
-    let mut stmt = conn.prepare("SELECT name FROM users WHERE is_active = true ORDER BY id").unwrap();
-    let names: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = conn
+        .prepare("SELECT name FROM users WHERE is_active = true ORDER BY id")
+        .unwrap();
+    let names: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(names, vec!["John Doe", "Bob Johnson"]);
 }
 
@@ -68,10 +78,16 @@ fn test_simple_users() {
 fn test_escaped_strings() {
     let (engine, skipped) = load_dump_file("test_corpus/escaped_strings.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT content FROM escaped ORDER BY id").unwrap();
-    let contents: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = conn
+        .prepare("SELECT content FROM escaped ORDER BY id")
+        .unwrap();
+    let contents: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(contents[0], "Hello\tWorld");
     assert_eq!(contents[1], "Line1\nLine2");
     assert_eq!(contents[2], "Carriage\rReturn");
@@ -82,10 +98,16 @@ fn test_escaped_strings() {
 fn test_unicode_data() {
     let (engine, skipped) = load_dump_file("test_corpus/unicode_data.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT val FROM unicode_test ORDER BY id").unwrap();
-    let vals: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = conn
+        .prepare("SELECT val FROM unicode_test ORDER BY id")
+        .unwrap();
+    let vals: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(vals[0], "Xin chào Việt Nam");
     assert_eq!(vals[1], "Cà phê sữa đá");
     assert_eq!(vals[2], "Sparkles ✨ and Emoji 👍");
@@ -96,13 +118,17 @@ fn test_unicode_data() {
 fn test_null_representations() {
     let (engine, skipped) = load_dump_file("test_corpus/null_representations.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT val, num FROM nulls ORDER BY id").unwrap();
-    let rows: Vec<(Option<String>, Option<i32>)> = stmt.query_map([], |r| {
-        Ok((r.get(0).unwrap(), r.get(1).unwrap()))
-    }).unwrap().map(|r| r.unwrap()).collect();
-    
+    let mut stmt = conn
+        .prepare("SELECT val, num FROM nulls ORDER BY id")
+        .unwrap();
+    let rows: Vec<(Option<String>, Option<i32>)> = stmt
+        .query_map([], |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+
     assert_eq!(rows[0], (Some("hello".to_string()), Some(42)));
     assert_eq!(rows[1], (None, Some(100)));
     assert_eq!(rows[2], (Some("empty".to_string()), None));
@@ -114,7 +140,7 @@ fn test_malformed_lines() {
     let (engine, skipped) = load_dump_file("test_corpus/malformed_lines.sql");
     // Bob has missing age field (only 2 cols), Charlie has age 'forty_two' (type parse error)
     assert_eq!(skipped, 2);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT count(*) FROM malformed").unwrap();
     let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
@@ -126,7 +152,7 @@ fn test_malformed_lines() {
 fn test_empty_table() {
     let (engine, skipped) = load_dump_file("test_corpus/empty_table.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT count(*) FROM empty").unwrap();
     let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
@@ -137,10 +163,14 @@ fn test_empty_table() {
 fn test_complex_types() {
     let (engine, skipped) = load_dump_file("test_corpus/complex_types.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT id, description FROM complex ORDER BY id DESC").unwrap();
-    let (id, desc): (i64, String) = stmt.query_row([], |r| Ok((r.get(0).unwrap(), r.get(1).unwrap()))).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT id, description FROM complex ORDER BY id DESC")
+        .unwrap();
+    let (id, desc): (i64, String) = stmt
+        .query_row([], |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())))
+        .unwrap();
     assert_eq!(id, 9223372036854775807i64);
     assert_eq!(desc, "Short text");
 }
@@ -149,14 +179,20 @@ fn test_complex_types() {
 fn test_multiple_tables() {
     let (engine, skipped) = load_dump_file("test_corpus/multiple_tables.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT sum(amount) FROM orders").unwrap();
     let sum: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
     assert_eq!(sum, 170000);
 
-    let mut stmt = conn.prepare("SELECT name FROM items ORDER BY item_id").unwrap();
-    let items: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = conn
+        .prepare("SELECT name FROM items ORDER BY item_id")
+        .unwrap();
+    let items: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(items, vec!["Laptop", "Mouse"]);
 }
 
@@ -164,14 +200,28 @@ fn test_multiple_tables() {
 fn test_postgres_12_and_17_dumps() {
     let (engine12, skipped12) = load_dump_file("test_corpus/postgres_12_dump.sql");
     assert_eq!(skipped12, 0);
-    let mut stmt = engine12.connection().prepare("SELECT val FROM pg12_table ORDER BY id").unwrap();
-    let vals12: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = engine12
+        .connection()
+        .prepare("SELECT val FROM pg12_table ORDER BY id")
+        .unwrap();
+    let vals12: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(vals12, vec!["Postgres 12 data", "More data"]);
 
     let (engine17, skipped17) = load_dump_file("test_corpus/postgres_17_dump.sql");
     assert_eq!(skipped17, 0);
-    let mut stmt = engine17.connection().prepare("SELECT info FROM pg17_table ORDER BY id").unwrap();
-    let vals17: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = engine17
+        .connection()
+        .prepare("SELECT info FROM pg17_table ORDER BY id")
+        .unwrap();
+    let vals17: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(vals17, vec!["Postgres 17 syntax", "Works perfectly"]);
 }
 
@@ -179,7 +229,7 @@ fn test_postgres_12_and_17_dumps() {
 fn test_no_newline_eof() {
     let (engine, skipped) = load_dump_file("test_corpus/no_newline_eof.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT val FROM no_eof_newline").unwrap();
     let val: String = stmt.query_row([], |r| r.get(0)).unwrap();
@@ -190,9 +240,11 @@ fn test_no_newline_eof() {
 fn test_quoted_identifiers() {
     let (engine, skipped) = load_dump_file("test_corpus/quoted_identifiers.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT \"My Column\" FROM \"Special Table\"").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT \"My Column\" FROM \"Special Table\"")
+        .unwrap();
     let val: String = stmt.query_row([], |r| r.get(0)).unwrap();
     assert_eq!(val, "Quoted Identifier test");
 }
@@ -201,10 +253,14 @@ fn test_quoted_identifiers() {
 fn test_carriage_returns() {
     let (engine, skipped) = load_dump_file("test_corpus/carriage_returns.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT val FROM crlf ORDER BY id").unwrap();
-    let vals: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    let vals: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     assert_eq!(vals, vec!["CRLF line 1", "CRLF line 2"]);
 }
 
@@ -212,7 +268,7 @@ fn test_carriage_returns() {
 fn test_special_table_names() {
     let (engine, skipped) = load_dump_file("test_corpus/special_table_names.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT \"order\" FROM \"select\"").unwrap();
     let val: String = stmt.query_row([], |r| r.get(0)).unwrap();
@@ -279,7 +335,9 @@ fn test_json_types() {
     assert_eq!(count, 3);
 
     // metadata is stored as VARCHAR — check one value is non-empty
-    let mut stmt = conn.prepare("SELECT metadata FROM json_data WHERE id = 1").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT metadata FROM json_data WHERE id = 1")
+        .unwrap();
     let meta: String = stmt.query_row([], |r| r.get(0)).unwrap();
     assert!(meta.contains("Alice"));
 }
@@ -290,7 +348,9 @@ fn test_uuid_types() {
     assert_eq!(skipped, 0);
 
     let conn = engine.connection();
-    let mut stmt = conn.prepare("SELECT id FROM uuid_data WHERE label = 'first'").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT id FROM uuid_data WHERE label = 'first'")
+        .unwrap();
     let uuid: String = stmt.query_row([], |r| r.get(0)).unwrap();
     assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
 
@@ -306,11 +366,15 @@ fn test_float_and_numeric_types() {
 
     let conn = engine.connection();
     // price is stored as DOUBLE
-    let mut stmt = conn.prepare("SELECT price FROM numeric_data WHERE id = 1").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT price FROM numeric_data WHERE id = 1")
+        .unwrap();
     let price: f64 = stmt.query_row([], |r| r.get(0)).unwrap();
     assert!((price - 19.99).abs() < 0.001);
 
-    let mut stmt = conn.prepare("SELECT sum(weight) FROM numeric_data").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT sum(weight) FROM numeric_data")
+        .unwrap();
     let total: f64 = stmt.query_row([], |r| r.get(0)).unwrap();
     assert!((total - 73.801).abs() < 0.01);
 }
@@ -351,15 +415,22 @@ fn test_parquet_cache_roundtrip() {
 
     // Save to Parquet cache
     let cache = CacheManager::new(dump_path);
-    cache.save_table(&engine_cold, "users").expect("save_table failed");
+    cache
+        .save_table(&engine_cold, "users")
+        .expect("save_table failed");
     cache.write_meta(dump_path).expect("write_meta failed");
 
     // Validate cache is now marked valid
-    assert!(cache.is_valid(dump_path), "Cache should be valid after write");
+    assert!(
+        cache.is_valid(dump_path),
+        "Cache should be valid after write"
+    );
 
     // Warm load — fresh engine, load from Parquet
     let engine_warm = Engine::new().expect("DuckDB init failed");
-    let loaded = cache.load_all_into_duckdb(&engine_warm).expect("load_all failed");
+    let loaded = cache
+        .load_all_into_duckdb(&engine_warm)
+        .expect("load_all failed");
     assert!(loaded.contains(&"users".to_string()));
 
     // Verify data matches
@@ -370,7 +441,10 @@ fn test_parquet_cache_roundtrip() {
 
     // Cleanup cache directory so it doesn't interfere with other test runs
     cache.invalidate();
-    assert!(!cache.is_valid(dump_path), "Cache should be invalid after invalidation");
+    assert!(
+        !cache.is_valid(dump_path),
+        "Cache should be invalid after invalidation"
+    );
 
     // Suppress unused warning for Path
     let _ = Path::new(dump_path);
@@ -380,7 +454,7 @@ fn test_parquet_cache_roundtrip() {
 fn test_mixed_case_types() {
     let (engine, skipped) = load_dump_file("test_corpus/mixed_case_types.sql");
     assert_eq!(skipped, 0);
-    
+
     let conn = engine.connection();
     let mut stmt = conn.prepare("SELECT flag FROM mixed_case").unwrap();
     let flag: bool = stmt.query_row([], |r| r.get(0)).unwrap();
