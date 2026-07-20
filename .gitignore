@@ -1,2 +1,4 @@
 /target
 /PLAN.md
+# Parquet cache directories generated at runtime
+*.pgquack_cache/

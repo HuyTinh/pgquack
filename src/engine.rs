@@ -1,14 +1,16 @@
-use crate::parser::{ColumnDef, TableSchema};
+use crate::parser::TableSchema;
 use duckdb::{types::ToSqlOutput, Connection, ToSql};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use log::{debug, info};
 
 pub enum MappedValue {
     Int(i32),
     BigInt(i64),
     Bool(bool),
+    Float(f64),
     Text(String),
     Timestamp(NaiveDateTime),
+    Date(NaiveDate),
     Null,
 }
 
@@ -18,8 +20,10 @@ impl ToSql for MappedValue {
             MappedValue::Int(v) => v.to_sql(),
             MappedValue::BigInt(v) => v.to_sql(),
             MappedValue::Bool(v) => v.to_sql(),
+            MappedValue::Float(v) => v.to_sql(),
             MappedValue::Text(v) => v.to_sql(),
             MappedValue::Timestamp(v) => v.to_sql(),
+            MappedValue::Date(v) => v.to_sql(),
             MappedValue::Null => Option::<i32>::None.to_sql(),
         }
     }
@@ -27,14 +31,37 @@ impl ToSql for MappedValue {
 
 pub fn map_postgres_type(pg_type: &str) -> &'static str {
     let norm = pg_type.to_lowercase();
-    if norm == "integer" || norm == "int" || norm == "int4" {
+    // Integer types
+    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint" {
         "INTEGER"
     } else if norm == "bigint" || norm == "int8" {
         "BIGINT"
+    // Boolean
     } else if norm == "boolean" || norm == "bool" {
         "BOOLEAN"
+    // Floating point
+    } else if norm == "real" || norm == "float4" || norm == "float8"
+        || norm == "double precision" || norm == "float"
+        || norm.starts_with("numeric") || norm.starts_with("decimal")
+    {
+        "DOUBLE"
+    // Temporal
     } else if norm.starts_with("timestamp") {
         "TIMESTAMP"
+    } else if norm == "date" {
+        "DATE"
+    // JSON / JSONB → store as VARCHAR in DuckDB (DuckDB can still parse it)
+    } else if norm == "json" || norm == "jsonb" {
+        "VARCHAR"
+    // UUID → store as VARCHAR
+    } else if norm == "uuid" {
+        "VARCHAR"
+    // Arrays (e.g. "integer[]", "text[]") → store JSON-encoded as VARCHAR
+    } else if norm.ends_with("[]") || norm.ends_with("array") {
+        "VARCHAR"
+    // Byte arrays
+    } else if norm == "bytea" {
+        "VARCHAR"
     } else {
         "VARCHAR"
     }
@@ -85,7 +112,9 @@ pub fn convert_value(val: Option<&str>, db_type: &str) -> Result<MappedValue, St
     };
 
     let norm = db_type.to_lowercase();
-    if norm == "integer" || norm == "int" || norm == "int4" {
+
+    // Integer types
+    if norm == "integer" || norm == "int" || norm == "int4" || norm == "int2" || norm == "smallint" {
         let parsed = val.parse::<i32>()
             .map_err(|e| format!("Failed to parse integer '{}': {}", val, e))?;
         Ok(MappedValue::Int(parsed))
@@ -93,6 +122,7 @@ pub fn convert_value(val: Option<&str>, db_type: &str) -> Result<MappedValue, St
         let parsed = val.parse::<i64>()
             .map_err(|e| format!("Failed to parse bigint '{}': {}", val, e))?;
         Ok(MappedValue::BigInt(parsed))
+    // Boolean
     } else if norm == "boolean" || norm == "bool" {
         let parsed = match val.to_lowercase().as_str() {
             "t" | "true" | "1" | "y" | "yes" => true,
@@ -100,12 +130,66 @@ pub fn convert_value(val: Option<&str>, db_type: &str) -> Result<MappedValue, St
             _ => return Err(format!("Failed to parse boolean '{}'", val)),
         };
         Ok(MappedValue::Bool(parsed))
+    // Floating point & numeric/decimal
+    } else if norm == "real" || norm == "float4" || norm == "float8"
+        || norm == "double precision" || norm == "float"
+        || norm.starts_with("numeric") || norm.starts_with("decimal")
+    {
+        let parsed = val.parse::<f64>()
+            .map_err(|e| format!("Failed to parse float '{}': {}", val, e))?;
+        Ok(MappedValue::Float(parsed))
+    // Temporal
     } else if norm.starts_with("timestamp") {
         let parsed = parse_timestamp(val)?;
         Ok(MappedValue::Timestamp(parsed))
+    } else if norm == "date" {
+        let parsed = NaiveDate::parse_from_str(val, "%Y-%m-%d")
+            .map_err(|e| format!("Failed to parse date '{}': {}", val, e))?;
+        Ok(MappedValue::Date(parsed))
+    // JSON/JSONB — store as text; validate it is parseable JSON
+    } else if norm == "json" || norm == "jsonb" {
+        // Accept as-is (DuckDB will handle JSON natively)
+        Ok(MappedValue::Text(val.to_string()))
+    // UUID — store as text
+    } else if norm == "uuid" {
+        Ok(MappedValue::Text(val.to_string()))
+    // 1D Arrays (e.g. "{1,2,3}" or "{a,b,c}") — JSON-encode
+    } else if norm.ends_with("[]") || norm.ends_with("array") {
+        let json = pg_array_to_json(val);
+        Ok(MappedValue::Text(json))
+    // Everything else (text, varchar, bytea, etc.)
     } else {
         Ok(MappedValue::Text(val.to_string()))
     }
+}
+
+/// Convert a PostgreSQL array literal (`{a,b,c}`) to a JSON array string (`["a","b","c"]`).
+/// This is a best-effort conversion for simple 1D arrays without nested quoting.
+pub fn pg_array_to_json(raw: &str) -> String {
+    let inner = raw.trim().trim_start_matches('{').trim_end_matches('}');
+    if inner.is_empty() {
+        return "[]".to_string();
+    }
+    let items: Vec<String> = inner
+        .split(',')
+        .map(|item| {
+            let item = item.trim();
+            if item.eq_ignore_ascii_case("null") {
+                "null".to_string()
+            } else if item.starts_with('"') {
+                // Already quoted
+                item.to_string()
+            } else {
+                // Try to preserve numerics as-is, quote everything else
+                if item.parse::<f64>().is_ok() {
+                    item.to_string()
+                } else {
+                    format!("{}", serde_json::Value::String(item.to_string()))
+                }
+            }
+        })
+        .collect();
+    format!("[{}]", items.join(","))
 }
 
 pub struct Engine {

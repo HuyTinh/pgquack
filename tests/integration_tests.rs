@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
 use pgquack::parser::{Parser, ParserEvent};
 use pgquack::engine::Engine;
+use pgquack::reader::DumpReader;
 
 fn load_dump_file(path: &str) -> (Engine, usize) {
-    let file = File::open(path).unwrap_or_else(|_| panic!("Failed to open test file {}", path));
-    let reader = BufReader::new(file);
+    let reader = DumpReader::open(path)
+        .unwrap_or_else(|e| panic!("Failed to open test file {}: {}", path, e));
+
     let mut parser = Parser::new(reader);
     let engine = Engine::new().expect("Failed to initialize DuckDB");
 
@@ -25,7 +25,7 @@ fn load_dump_file(path: &str) -> (Engine, usize) {
                 }
                 ParserEvent::CopyStart { table_name, .. } => {
                     // Drop previous appender before creating the next one.
-                    current_appender = None;
+                    let _ = current_appender.take();
                     let schema = table_schemas.get(&table_name).expect("Schema not found");
                     let appender = engine.appender(&table_name, schema.clone()).expect("Failed to start Appender");
                     current_appender = Some(appender);
@@ -217,6 +217,163 @@ fn test_special_table_names() {
     let mut stmt = conn.prepare("SELECT \"order\" FROM \"select\"").unwrap();
     let val: String = stmt.query_row([], |r| r.get(0)).unwrap();
     assert_eq!(val, "Keyword as identifier");
+}
+
+// ─── Phase 2: Compression tests ──────────────────────────────────────────────
+
+#[test]
+fn test_gzip_simple_users() {
+    // Reads the gzip-compressed version of simple_users.sql
+    let (engine, skipped) = load_dump_file("test_corpus/simple_users.sql.gz");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT count(*) FROM users").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn test_gzip_unicode() {
+    let (engine, skipped) = load_dump_file("test_corpus/unicode_data.sql.gz");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT count(*) FROM unicode_test").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 4);
+}
+
+#[test]
+fn test_zstd_multiple_tables() {
+    let (engine, skipped) = load_dump_file("test_corpus/multiple_tables.sql.zst");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT sum(amount) FROM orders").unwrap();
+    let sum: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(sum, 170000);
+}
+
+#[test]
+fn test_zstd_null_representations() {
+    let (engine, skipped) = load_dump_file("test_corpus/null_representations.sql.zst");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT count(*) FROM nulls").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 4);
+}
+
+// ─── Phase 2: Extended type mapper tests ─────────────────────────────────────
+
+#[test]
+fn test_json_types() {
+    let (engine, skipped) = load_dump_file("test_corpus/json_types.sql");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT count(*) FROM json_data").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+
+    // metadata is stored as VARCHAR — check one value is non-empty
+    let mut stmt = conn.prepare("SELECT metadata FROM json_data WHERE id = 1").unwrap();
+    let meta: String = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert!(meta.contains("Alice"));
+}
+
+#[test]
+fn test_uuid_types() {
+    let (engine, skipped) = load_dump_file("test_corpus/uuid_types.sql");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn.prepare("SELECT id FROM uuid_data WHERE label = 'first'").unwrap();
+    let uuid: String = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
+
+    let mut stmt = conn.prepare("SELECT count(*) FROM uuid_data").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn test_float_and_numeric_types() {
+    let (engine, skipped) = load_dump_file("test_corpus/float_types.sql");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    // price is stored as DOUBLE
+    let mut stmt = conn.prepare("SELECT price FROM numeric_data WHERE id = 1").unwrap();
+    let price: f64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert!((price - 19.99).abs() < 0.001);
+
+    let mut stmt = conn.prepare("SELECT sum(weight) FROM numeric_data").unwrap();
+    let total: f64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert!((total - 73.801).abs() < 0.01);
+}
+
+#[test]
+fn test_date_and_array_types() {
+    let (engine, skipped) = load_dump_file("test_corpus/date_array_types.sql");
+    assert_eq!(skipped, 0);
+
+    let conn = engine.connection();
+    let mut stmt = conn
+        .prepare("SELECT count(*) FROM date_and_array WHERE event_date < '2025-01-01'")
+        .unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    // 2024-01-15 and 2000-02-29 are before 2025
+    assert_eq!(count, 2);
+
+    // tags is stored as JSON-encoded VARCHAR
+    let mut stmt = conn
+        .prepare("SELECT tags FROM date_and_array WHERE id = 1")
+        .unwrap();
+    let tags: String = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert!(tags.contains("rust"));
+}
+
+// ─── Phase 2: Cache roundtrip test ───────────────────────────────────────────
+
+#[test]
+fn test_parquet_cache_roundtrip() {
+    use pgquack::cache::CacheManager;
+    use std::path::Path;
+
+    let dump_path = "test_corpus/simple_users.sql";
+
+    // Cold parse — populate engine from dump
+    let (engine_cold, skipped) = load_dump_file(dump_path);
+    assert_eq!(skipped, 0);
+
+    // Save to Parquet cache
+    let cache = CacheManager::new(dump_path);
+    cache.save_table(&engine_cold, "users").expect("save_table failed");
+    cache.write_meta(dump_path).expect("write_meta failed");
+
+    // Validate cache is now marked valid
+    assert!(cache.is_valid(dump_path), "Cache should be valid after write");
+
+    // Warm load — fresh engine, load from Parquet
+    let engine_warm = Engine::new().expect("DuckDB init failed");
+    let loaded = cache.load_all_into_duckdb(&engine_warm).expect("load_all failed");
+    assert!(loaded.contains(&"users".to_string()));
+
+    // Verify data matches
+    let conn = engine_warm.connection();
+    let mut stmt = conn.prepare("SELECT count(*) FROM users").unwrap();
+    let count: i64 = stmt.query_row([], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+
+    // Cleanup cache directory so it doesn't interfere with other test runs
+    cache.invalidate();
+    assert!(!cache.is_valid(dump_path), "Cache should be invalid after invalidation");
+
+    // Suppress unused warning for Path
+    let _ = Path::new(dump_path);
 }
 
 #[test]

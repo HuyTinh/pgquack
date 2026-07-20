@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::BufRead;
-use log::{warn, info};
+use log::warn;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -287,24 +287,19 @@ fn parse_column_line(line: &str) -> Option<ColumnDef> {
         return None;
     }
 
-    let mut column_name = String::new();
-    let mut remaining = "";
-
-    if line.starts_with('"') {
+    let (column_name, remaining) = if line.starts_with('"') {
         if let Some(close_idx) = line[1..].find('"') {
-            column_name = line[1..close_idx + 1].to_string();
-            remaining = line[close_idx + 2..].trim();
+            (line[1..close_idx + 1].to_string(), line[close_idx + 2..].trim())
         } else {
             return None;
         }
     } else {
         if let Some(space_idx) = line.find(char::is_whitespace) {
-            column_name = line[..space_idx].to_string();
-            remaining = line[space_idx..].trim();
+            (line[..space_idx].to_string(), line[space_idx..].trim())
         } else {
             return None;
         }
-    }
+    };
 
     if column_name.is_empty() {
         return None;
