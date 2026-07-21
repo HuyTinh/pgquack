@@ -351,7 +351,7 @@ pub fn register(conn: &duckdb::Connection) -> duckdb::Result<()> {
 ///
 /// Enable with: `cargo build --release --features loadable-ext`
 #[cfg(feature = "loadable-ext")]
-#[duckdb_entrypoint_c_api(ext_name = "pgquack", min_duckdb_version = "v0.0.1")]
+#[duckdb_entrypoint_c_api(ext_name = "pgquack", min_duckdb_version = "v1.2.0")]
 pub fn pgquack_ext_init(conn: Connection) -> Result<(), Box<dyn std::error::Error>> {
     conn.register_table_function::<PgQuackVTab>("pgquack_read")?;
     Ok(())

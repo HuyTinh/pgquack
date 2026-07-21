@@ -300,20 +300,14 @@ fn parse_column_line(line: &str) -> Option<ColumnDef> {
     }
 
     let (column_name, remaining) = if let Some(stripped) = line.strip_prefix('"') {
-        if let Some(close_idx) = stripped.find('"') {
-            (
-                stripped[..close_idx].to_string(),
-                stripped[close_idx + 1..].trim(),
-            )
-        } else {
-            return None;
-        }
+        let close_idx = stripped.find('"')?;
+        (
+            stripped[..close_idx].to_string(),
+            stripped[close_idx + 1..].trim(),
+        )
     } else {
-        if let Some(space_idx) = line.find(char::is_whitespace) {
-            (line[..space_idx].to_string(), line[space_idx..].trim())
-        } else {
-            return None;
-        }
+        let space_idx = line.find(char::is_whitespace)?;
+        (line[..space_idx].to_string(), line[space_idx..].trim())
     };
 
     if column_name.is_empty() {

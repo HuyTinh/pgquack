@@ -48,8 +48,20 @@ jobs:
               | python3 -c 'import json, sys; print(next(filename for message in map(json.loads, sys.stdin) if message.get("reason") == "compiler-artifact" and message.get("target", {}).get("name") == "pgquack" and "cdylib" in message.get("target", {}).get("kind", []) for filename in message.get("filenames", []) if filename.endswith((".so", ".dylib", ".dll"))))'
           )"
           test -f "$extension_path"
-          printf 'extension_path=%s\n' "$extension_path" >> "$GITHUB_OUTPUT"
-          ls -lh "$extension_path"
+          packaged_extension="${extension_path%.*}.duckdb_extension"
+          extension_version="v$(
+            cargo metadata --no-deps --format-version=1 \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])'
+          )"
+          python3 scripts/package_loadable_extension.py \
+            --source "$extension_path" \
+            --output "$packaged_extension" \
+            --platform linux_amd64 \
+            --duckdb-version v1.2.0 \
+            --extension-version "$extension_version"
+          test -f "$packaged_extension"
+          printf 'extension_path=%s\n' "$packaged_extension" >> "$GITHUB_OUTPUT"
+          ls -lh "$packaged_extension"
       - name: Load extension and query pgquack_read with DuckDB CLI
         shell: bash
         run: |
@@ -61,7 +73,7 @@ jobs:
           duckdb_cli=duckdb-cli/duckdb
           chmod +x "$duckdb_cli"
           row_count="$(
-            "$duckdb_cli" -noheader -csv -c "LOAD '${{ steps.build_extension.outputs.extension_path }}'; SELECT count(*) FROM pgquack_read('test_corpus/simple_users.sql', 'users');"
+            "$duckdb_cli" -unsigned -noheader -csv -c "LOAD '${{ steps.build_extension.outputs.extension_path }}'; SELECT count(*) FROM pgquack_read('test_corpus/simple_users.sql', 'users');"
           )"
           test "$row_count" = 3
           printf 'pgquack_read row count: %s\n' "$row_count"
