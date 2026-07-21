@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: /tmp/pgquack_target
 
 jobs:
   check:
@@ -17,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Cargo Check
+      - name: Cargo Check (default features)
         run: cargo check --verbose
 
   test:
@@ -29,6 +30,41 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run tests
         run: cargo test --verbose
+
+  build-extension:
+    name: Build DuckDB Extension (.so)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build cdylib with loadable-ext feature
+        id: build_extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          extension_path="$(
+            cargo build --release --features loadable-ext --lib --message-format=json \
+              | python3 -c 'import json, sys; print(next(filename for message in map(json.loads, sys.stdin) if message.get("reason") == "compiler-artifact" and message.get("target", {}).get("name") == "pgquack" and "cdylib" in message.get("target", {}).get("kind", []) for filename in message.get("filenames", []) if filename.endswith((".so", ".dylib", ".dll"))))'
+          )"
+          test -f "$extension_path"
+          printf 'extension_path=%s\n' "$extension_path" >> "$GITHUB_OUTPUT"
+          ls -lh "$extension_path"
+      - name: Load extension and query pgquack_read with DuckDB CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --output duckdb_cli.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          unzip -q duckdb_cli.zip -d duckdb-cli
+          duckdb_cli=duckdb-cli/duckdb
+          chmod +x "$duckdb_cli"
+          row_count="$(
+            "$duckdb_cli" -noheader -csv -c "LOAD '${{ steps.build_extension.outputs.extension_path }}'; SELECT count(*) FROM pgquack_read('test_corpus/simple_users.sql', 'users');"
+          )"
+          test "$row_count" = 3
+          printf 'pgquack_read row count: %s\n' "$row_count"
 
   fmt:
     name: Rustfmt

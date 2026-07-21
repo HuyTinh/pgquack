@@ -36,7 +36,7 @@ pub enum CompressionFormat {
 pub enum DumpReader {
     Plain(BufReader<File>),
     Gzip(BufReader<GzDecoder<File>>),
-    Zstd(Box<dyn BufRead>),
+    Zstd(Box<dyn BufRead + Send>),
 }
 
 impl DumpReader {
@@ -177,5 +177,12 @@ mod tests {
             .to_lowercase();
         assert_ne!(ext, "gz");
         assert_ne!(ext, "zst");
+    }
+
+    #[test]
+    fn dump_reader_is_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<DumpReader>();
     }
 }

@@ -460,3 +460,164 @@ fn test_mixed_case_types() {
     let flag: bool = stmt.query_row([], |r| r.get(0)).unwrap();
     assert!(flag);
 }
+
+#[test]
+fn test_pgquack_read_vtab() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, is_active FROM pgquack_read('test_corpus/simple_users.sql', 'users')",
+        )
+        .expect("Failed to prepare SELECT");
+
+    struct User {
+        id: i32,
+        name: String,
+        is_active: bool,
+    }
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(User {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                is_active: row.get(2)?,
+            })
+        })
+        .expect("Query failed");
+
+    let users: Vec<User> = rows.map(|r| r.unwrap()).collect();
+    assert_eq!(users.len(), 3);
+    assert_eq!(users[0].id, 1);
+    assert_eq!(users[0].name, "John Doe");
+    assert!(users[0].is_active);
+    assert_eq!(users[1].id, 2);
+    assert_eq!(users[1].name, "Jane Smith");
+    assert!(!users[1].is_active);
+}
+
+#[test]
+fn test_pgquack_read_rejects_rows_with_invalid_typed_values() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, age FROM pgquack_read('test_corpus/invalid_typed_value.sql', 'invalid_typed_value')",
+        )
+        .expect("Failed to prepare SELECT");
+
+    let result = stmt.query([]);
+    assert!(
+        result.is_err(),
+        "an invalid integer in COPY data must fail the table-function query rather than become NULL"
+    );
+}
+
+#[test]
+fn test_pgquack_read_rejects_parser_skipped_rows() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name FROM pgquack_read('test_corpus/parser_skipped_rows.sql', 'parser_skipped_rows')",
+        )
+        .expect("Failed to prepare SELECT");
+
+    let result = stmt.query([]);
+    assert!(
+        result.is_err(),
+        "a COPY row skipped by the parser must fail the table-function query rather than silently omit data"
+    );
+}
+
+#[test]
+fn test_pgquack_read_ignores_parser_skips_in_unrelated_tables() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM pgquack_read('test_corpus/unrelated_parser_skipped_rows.sql', 'target_rows')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a skipped row in an unrelated table must not fail the target table query");
+
+    assert_eq!(name, "kept");
+}
+
+#[test]
+fn test_pgquack_read_supports_gzip_dumps() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM pgquack_read('test_corpus/simple_users.sql.gz', 'users')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("gzip dump query failed");
+
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn test_pgquack_read_supports_zstd_dumps() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let total: i64 = conn
+        .query_row(
+            "SELECT sum(amount) FROM pgquack_read('test_corpus/multiple_tables.sql.zst', 'orders')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("zstd dump query failed");
+
+    assert_eq!(total, 170000);
+}
+
+#[test]
+fn test_pgquack_read_preserves_null_values() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let null_count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM pgquack_read('test_corpus/null_representations.sql', 'nulls') WHERE val IS NULL OR num IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("NULL-preservation query failed");
+
+    assert_eq!(null_count, 2);
+}
+
+#[test]
+fn test_pgquack_read_maps_copy_columns_to_schema_order() {
+    let conn = duckdb::Connection::open_in_memory().expect("DuckDB init failed");
+    pgquack::extension::register(&conn).expect("Failed to register pgquack_read table function");
+
+    let rows: Vec<(i32, String, bool)> = conn
+        .prepare(
+            "SELECT id, name, is_active FROM pgquack_read('test_corpus/reordered_copy_columns.sql', 'reordered_copy') ORDER BY id",
+        )
+        .expect("Failed to prepare reordered COPY query")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("reordered COPY query failed")
+        .map(|row| row.expect("failed to read reordered COPY row"))
+        .collect();
+
+    assert_eq!(
+        rows,
+        vec![
+            (1, "Ada Lovelace".to_string(), true),
+            (2, "Grace Hopper".to_string(), false),
+        ]
+    );
+}

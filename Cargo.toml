@@ -1,10 +1,28 @@
 [package]
 name = "pgquack"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
+[lib]
+name = "pgquack"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "pgquack"
+path = "src/main.rs"
+
+[features]
+# Enable this ONLY when building the cdylib for distribution as a DuckDB extension.
+# WARNING: this changes global DuckDB link behaviour and must NOT be used with
+# the CLI binary or integration tests (they need a normal, self-contained DuckDB).
+loadable-ext = [
+    "duckdb/vtab-loadable",
+    "duckdb/loadable-extension",
+]
+
 [dependencies]
-duckdb = { version = "1.1.1", features = ["bundled", "chrono"] }
+duckdb = { version = "1.2.2", features = ["bundled", "chrono", "vtab"] }
+duckdb-loadable-macros = "0.1.6"
 clap = { version = "4.5", features = ["derive"] }
 thiserror = "2.0"
 log = "0.4"
@@ -16,3 +34,8 @@ arrow = { version = "53", features = ["prettyprint"] }
 parquet = { version = "53", features = ["arrow"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = "s"
