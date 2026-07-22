@@ -234,7 +234,11 @@ impl Engine {
 
     pub fn query(&self, sql: &str) -> Result<(), duckdb::Error> {
         let mut stmt = self.conn.prepare(sql)?;
-        let col_names = stmt.column_names();
+        let mut rows = stmt.query([])?;
+        let result_statement = rows
+            .as_ref()
+            .expect("query rows should retain their prepared statement");
+        let col_names = result_statement.column_names();
         let col_count = col_names.len();
 
         let mut rows_data: Vec<Vec<String>> = Vec::new();
@@ -244,7 +248,6 @@ impl Engine {
             col_widths[i] = name.len();
         }
 
-        let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let mut row_strings = Vec::with_capacity(col_count);
             for (i, width) in col_widths.iter_mut().enumerate().take(col_count) {
@@ -352,5 +355,17 @@ impl<'a> AppenderSession<'a> {
             .append_row(params.as_slice())
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Engine;
+
+    #[test]
+    fn query_executes_before_reading_result_metadata() {
+        let engine = Engine::new().unwrap();
+
+        engine.query("SELECT 1 AS value").unwrap();
     }
 }

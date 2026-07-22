@@ -15,7 +15,7 @@ use pgquack::reader::DumpReader;
     about = "Direct Query Engine for PostgreSQL Dumps — zero restore, DuckDB-powered"
 )]
 struct Args {
-    /// Path to the SQL dump file (.sql, .sql.gz, .sql.zst)
+    /// Path to a SQL dump (.sql, .sql.gz, .sql.zst) or pg_dump tar archive (.tar, .tar.gz)
     dump_file: String,
 
     /// SQL query to execute on the loaded database
