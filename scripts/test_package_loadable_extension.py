@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).with_name("package_loadable_extension.py")
+WORKFLOW_PATH = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
 SPEC = importlib.util.spec_from_file_location("package_loadable_extension", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -13,6 +14,14 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PackageLoadableExtensionTests(unittest.TestCase):
+    def test_ci_packages_artifact_using_extension_entrypoint_name(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'packaged_extension="$(dirname "$extension_path")/pgquack.duckdb_extension"',
+            workflow,
+        )
+
     def test_appends_duckdb_v1_metadata_footer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             extension = Path(temp_dir) / "pgquack.duckdb_extension"

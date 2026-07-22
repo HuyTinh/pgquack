@@ -48,7 +48,7 @@ jobs:
               | python3 -c 'import json, sys; print(next(filename for message in map(json.loads, sys.stdin) if message.get("reason") == "compiler-artifact" and message.get("target", {}).get("name") == "pgquack" and "cdylib" in message.get("target", {}).get("kind", []) for filename in message.get("filenames", []) if filename.endswith((".so", ".dylib", ".dll"))))'
           )"
           test -f "$extension_path"
-          packaged_extension="${extension_path%.*}.duckdb_extension"
+          packaged_extension="$(dirname "$extension_path")/pgquack.duckdb_extension"
           extension_version="v$(
             cargo metadata --no-deps --format-version=1 \
               | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])'
